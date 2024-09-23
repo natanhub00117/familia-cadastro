@@ -1,0 +1,30 @@
+{
+  "project_info": {
+    "project_number": "825633634993",
+    "firebase_url": "https://formularios-parnaiba-default-rtdb.firebaseio.com",
+    "project_id": "formularios-parnaiba",
+    "storage_bucket": "formularios-parnaiba.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:825633634993:android:4ddbe6c2c19dd346f8c090",
+        "android_client_info": {
+          "package_name": "com.example.dr_helio"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCaWXBhxwe6oSMU4p1-vHWWE40bQxzXgFU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

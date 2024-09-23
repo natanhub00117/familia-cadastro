@@ -1,0 +1,573 @@
+no meu app flutter + firebase:
+
+historico_cadastro.dart "// historico_cadastro.dart
+
+import 'package:flutter/material.dart';
+import 'models/cadastro_model.dart';
+
+class HistoricoCadastros extends StatelessWidget {
+  final List<CadastroModel> cadastros;
+
+  const HistoricoCadastros({super.key, required this.cadastros});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Histórico de Cadastros'),
+      ),
+      body: ListView.builder(
+        itemCount: cadastros.length,
+        itemBuilder: (context, index) {
+          final cadastro = cadastros[index];
+            return Card(
+            child: ListTile(
+              title: Text(cadastro.nome ?? 'Nome não disponível'),
+              subtitle: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Idade: ${cadastro.classificacaoIdade}'),
+                  Text('Bairro: ${cadastro.bairro}'),
+                  Text('Profissão: ${cadastro.profissao}'),
+                  Text('Contato: ${cadastro.contato}'),
+                  Text('O contato é WhatsApp? ${cadastro.whatsapp ? 'Sim' : 'Não'}'), // Modify here
+                ],
+              ),
+              tileColor: Colors.white, // Set background color to white
+            ),
+            );
+        },
+      ),
+    );
+  }
+}
+"
+main.dart"import 'package:dr_helio/models/cadastro_model.dart';
+import 'package:flutter/material.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:hive_flutter/hive_flutter.dart';
+import 'services/dados_service.dart';
+import 'app.dart';
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp();
+
+  await Hive.initFlutter();
+
+  // Register the adapter for CadastroModel
+  Hive.registerAdapter(CadastroModelAdapter());
+
+  // Carregar os dados do JSON antes de inicializar o app
+  await DadosService.carregarDados();
+
+  // Fazer login anônimo
+  await FirebaseAuth.instance.signInAnonymously();
+
+  runApp(const MyApp());
+}
+"
+app.dart"import 'package:flutter/material.dart';
+import 'screens/cadastro_screen.dart';
+
+class MyApp extends StatelessWidget {
+  const MyApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'Formulário de Cadastro',
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData(
+        primarySwatch: Colors.green,
+        visualDensity: VisualDensity.adaptivePlatformDensity,
+        inputDecorationTheme: InputDecorationTheme(
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12.0),
+            borderSide: BorderSide.none,
+          ),
+          filled: true,
+          fillColor: Colors.white,
+        ),
+        appBarTheme: const AppBarTheme(
+          backgroundColor: Colors.white,
+          foregroundColor: Colors.green,
+          elevation: 0,
+        ),
+        scaffoldBackgroundColor: Colors.grey[100],
+        textTheme: const TextTheme(
+          bodyMedium: TextStyle(color: Colors.black87),
+          titleLarge:
+              TextStyle(color: Colors.black, fontWeight: FontWeight.bold),
+        ),
+        checkboxTheme: CheckboxThemeData(
+          fillColor: WidgetStateProperty.all(Colors.green),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(4.0),
+          ),
+        ),
+        elevatedButtonTheme: ElevatedButtonThemeData(
+          style: ElevatedButton.styleFrom(
+            foregroundColor: Colors.white,
+            backgroundColor: Colors.green[700],
+            padding: const EdgeInsets.symmetric(vertical: 15.0),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10.0),
+            ),
+          ),
+        ),
+      ),
+      home: const CadastroScreen(),
+    );
+  }
+}
+"
+dropdown_widgets.dart"import 'package:flutter/material.dart';
+
+class DropdownWidget extends StatelessWidget {
+  final String label;
+  final List<String> items;
+
+  const DropdownWidget({super.key, required this.label, required this.items});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8.0),
+      child: DropdownButtonFormField<String>(
+        decoration: InputDecoration(
+          labelText: label,
+          border: const OutlineInputBorder(),
+        ),
+        items: items.map((String value) {
+          return DropdownMenuItem<String>(
+            value: value,
+            child: Text(value),
+          );
+        }).toList(),
+        onChanged: (newValue) {},
+      ),
+    );
+  }
+}
+"
+dados_service.dart"import 'dart:convert';
+import 'package:flutter/services.dart';
+
+class DadosService {
+  static Map<String, dynamic> _dados = {};
+
+  static Future<void> carregarDados() async {
+    final String response = await rootBundle.loadString('assets/dados.json');
+    _dados = json.decode(response);
+  }
+
+  static Future<Map<String, dynamic>> obterDados() async {
+    return _dados;
+  }
+}
+"
+cadastro_screen.dart"import 'package:flutter/material.dart';
+import 'package:flutter_form_builder/flutter_form_builder.dart';
+import 'package:hive_flutter/hive_flutter.dart';
+import 'dart:async';
+import 'package:firebase_database/firebase_database.dart';
+import '../services/dados_service.dart';
+import '../models/cadastro_model.dart';
+import '../historico_cadastro.dart';
+import 'cadastro_form.dart';
+
+class CadastroScreen extends StatefulWidget {
+  const CadastroScreen({super.key});
+
+  @override
+  createState() => CadastroScreenState();
+}
+
+class CadastroScreenState extends State<CadastroScreen> {
+  final _formKey = GlobalKey<FormBuilderState>();
+  Box<CadastroModel>? _cadastroBox;
+  bool isWhatsApp = false;
+  int _imageIndex = 0;
+  late Timer _timer;
+
+  List<String> bairros = [];
+  List<String> classificacaoIdade = [];
+  List<String> profissoes = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _carregarDados();
+    if (!Hive.isAdapterRegistered(0)) {
+      Hive.registerAdapter(CadastroModelAdapter());
+    }
+    _openBox();
+    _timer = Timer.periodic(const Duration(seconds: 6), (Timer timer) {
+      setState(() {
+        _imageIndex = (_imageIndex + 1) % 2;
+      });
+    });
+  }
+
+  Future<void> _carregarDados() async {
+    await DadosService.carregarDados();
+    final dados = await DadosService.obterDados();
+    setState(() {
+      bairros = List<String>.from(dados['Bairros']);
+      classificacaoIdade = List<String>.from(dados['ClassificacaoIdade']);
+      profissoes = List<String>.from(dados['Profissoes']);
+    });
+  }
+
+  Future<void> _openBox() async {
+    _cadastroBox = await Hive.openBox<CadastroModel>('cadastroBox');
+  }
+
+  @override
+  void dispose() {
+    _timer.cancel();
+    Hive.close();
+    super.dispose();
+  }
+
+  void _mostrarDialogo(BuildContext context, String titulo, String mensagem) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          backgroundColor: Colors.white,
+          title: Text(titulo, style: const TextStyle(color: Colors.black)),
+          content: Text(mensagem, style: const TextStyle(color: Colors.black)),
+          actions: <Widget>[
+            TextButton(
+              child: const Text(
+                "OK",
+                style: TextStyle(color: Colors.black),
+              ),
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+// Variáveis para controle de cadastros e tempo
+  int _contagemCadastros = 0;
+  DateTime? _ultimoCadastroTimestamp;
+
+  void _adicionarCadastro() async {
+    if (_formKey.currentState!.saveAndValidate()) {
+      final cadastro = CadastroModel()
+        ..nome = _formKey.currentState!.value['nome']
+        ..classificacaoIdade =
+            _formKey.currentState!.value['classificacao_idade']
+        ..bairro = _formKey.currentState!.value['bairro']
+        ..profissao = _formKey.currentState!.value['profissao']
+        ..contato = _formKey.currentState!.value['contato']
+        ..whatsapp = isWhatsApp;
+
+      try {
+        await _cadastroBox?.add(cadastro);
+
+        final DatabaseReference dbRef =
+            FirebaseDatabase.instance.ref().child('cadastros');
+        await dbRef.push().set({
+          'nome': cadastro.nome,
+          'classificacaoIdade': cadastro.classificacaoIdade,
+          'bairro': cadastro.bairro,
+          'profissao': cadastro.profissao,
+          'contato': cadastro.contato,
+          'whatsapp': cadastro.whatsapp,
+        });
+
+        DateTime agora = DateTime.now();
+        if (_ultimoCadastroTimestamp == null ||
+            agora.difference(_ultimoCadastroTimestamp!).inSeconds > 2) {
+          // Se for o primeiro cadastro ou se passaram mais de 2 segundos desde o último cadastro
+          _ultimoCadastroTimestamp = agora;
+          _contagemCadastros = 1;
+        } else {
+          // Se o cadastro ocorreu dentro de 2 segundos do último cadastro
+          _contagemCadastros++;
+        }
+
+        // Sempre aguarda 2 segundos para mostrar a mensagem de sucesso
+        Future.delayed(const Duration(seconds: 2)).then((_) {
+          if (mounted && _contagemCadastros > 0) {
+            _mostrarDialogo(context, 'Sucesso',
+                '$_contagemCadastros Cadastro(s) realizado(s) com sucesso!');
+            _contagemCadastros = 0; // Resetar a contagem após mostrar o diálogo
+          }
+        });
+      } catch (e) {
+        if (mounted) {
+          _mostrarDialogo(context, 'Erro', 'Ocorreu um erro: $e');
+        }
+      }
+    } else {
+      if (mounted) {
+        _mostrarDialogo(
+            context, 'Erro', 'Preencha todos os campos corretamente.');
+      }
+    }
+  }
+
+  void _mostrarHistorico(BuildContext context) {
+    if (_cadastroBox == null || _cadastroBox!.isEmpty) {
+      _mostrarDialogo(context, 'Erro', 'Nenhum cadastro realizado.');
+    } else {
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (context) => HistoricoCadastros(
+            cadastros: _cadastroBox!.values.toList(),
+          ),
+        ),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        centerTitle: true,
+        title: Padding(
+          padding: const EdgeInsets.all(8.0),
+          child: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 600),
+            child: _imageIndex == 0
+                ? Image.asset('assets/app_icon.png',
+                    key: ValueKey<int>(_imageIndex))
+                : Image.asset('assets/app_banner.png',
+                    key: ValueKey<int>(_imageIndex)),
+          ),
+        ),
+      ),
+      body: CadastroForm(
+        formKey: _formKey,
+        bairros: bairros,
+        classificacaoIdade: classificacaoIdade,
+        profissoes: profissoes,
+        isWhatsApp: isWhatsApp,
+        onWhatsAppChanged: (bool value) {
+          setState(() {
+            isWhatsApp = value;
+          });
+        },
+        onSave: _adicionarCadastro,
+        onShowHistory: () => _mostrarHistorico(context),
+      ),
+    );
+  }
+}
+"
+
+cadastro_form.dart "import 'package:flutter/material.dart';
+import 'package:flutter_form_builder/flutter_form_builder.dart';
+import 'package:form_builder_validators/form_builder_validators.dart';
+import 'package:mask_text_input_formatter/mask_text_input_formatter.dart';
+
+class CadastroForm extends StatelessWidget {
+  final GlobalKey<FormBuilderState> formKey;
+  final List<String> bairros;
+  final List<String> classificacaoIdade;
+  final List<String> profissoes;
+  final bool isWhatsApp;
+  final ValueChanged<bool> onWhatsAppChanged;
+  final VoidCallback onSave;
+  final VoidCallback onShowHistory;
+
+  CadastroForm({super.key, 
+    required this.formKey,
+    required this.bairros,
+    required this.classificacaoIdade,
+    required this.profissoes,
+    required this.isWhatsApp,
+    required this.onWhatsAppChanged,
+    required this.onSave,
+    required this.onShowHistory,
+  });
+
+  final maskFormatter = MaskTextInputFormatter(
+      mask: '(##) #####-####', filter: {"#": RegExp(r'[0-9]')});
+
+  @override
+  Widget build(BuildContext context) {
+    return FormBuilder(
+      key: formKey,
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              const SizedBox(height: 20),
+              FormBuilderTextField(
+                name: 'nome',
+                decoration: const InputDecoration(
+                  labelText: 'Nome',
+                  prefixIcon: Icon(Icons.person, color: Colors.black),
+                  labelStyle: TextStyle(color: Colors.black),
+                ),
+                validator: FormBuilderValidators.compose([
+                  FormBuilderValidators.required(
+                      errorText: 'Campo obrigatório'),
+                  FormBuilderValidators.minLength(3,
+                      errorText: 'Mínimo de 4 caracteres'),
+                ]),
+              ),
+              const SizedBox(height: 20),
+              FormBuilderDropdown(
+                name: 'classificacao_idade',
+                decoration: const InputDecoration(
+                  labelText: 'Idade',
+                  prefixIcon: Icon(Icons.cake, color: Colors.black),
+                  labelStyle: TextStyle(color: Colors.black),
+                ),
+                items: classificacaoIdade
+                    .map((classificacao) => DropdownMenuItem(
+                        value: classificacao,
+                        child: Text(classificacao,
+                            style: const TextStyle(color: Colors.black))))
+                    .toList(),
+                validator: FormBuilderValidators.required(
+                    errorText: 'Campo obrigatório'),
+                style: const TextStyle(color: Colors.black),
+                dropdownColor: Colors.white,
+              ),
+              const SizedBox(height: 20),
+              FormBuilderDropdown(
+                name: 'bairro',
+                decoration: const InputDecoration(
+                  labelText: 'Bairro',
+                  prefixIcon: Icon(Icons.location_city, color: Colors.black),
+                  labelStyle: TextStyle(color: Colors.black),
+                ),
+                items: bairros
+                    .map((bairro) => DropdownMenuItem(
+                        value: bairro,
+                        child: Text(bairro,
+                            style: const TextStyle(color: Colors.black))))
+                    .toList(),
+                validator: FormBuilderValidators.required(
+                    errorText: 'Campo obrigatório'),
+                style: const TextStyle(color: Colors.black),
+                dropdownColor: Colors.white,
+              ),
+              const SizedBox(height: 20),
+              FormBuilderDropdown(
+                name: 'profissao',
+                decoration: const InputDecoration(
+                  labelText: 'Profissão',
+                  prefixIcon: Icon(Icons.work, color: Colors.black),
+                  labelStyle: TextStyle(color: Colors.black),
+                ),
+                items: profissoes
+                    .map((profissao) => DropdownMenuItem(
+                        value: profissao,
+                        child: Text(profissao,
+                            style: const TextStyle(color: Colors.black))))
+                    .toList(),
+                validator: FormBuilderValidators.required(
+                    errorText: 'Campo obrigatório'),
+                style: const TextStyle(color: Colors.black),
+                dropdownColor: Colors.white,
+              ),
+              const SizedBox(height: 20),
+              FormBuilderTextField(
+                name: 'contato',
+                decoration: const InputDecoration(
+                  labelText: 'Contato',
+                  prefixIcon: Icon(Icons.phone, color: Colors.black),
+                  labelStyle: TextStyle(color: Colors.black),
+                ),
+                inputFormatters: [maskFormatter],
+                validator: FormBuilderValidators.compose([
+                  FormBuilderValidators.required(
+                      errorText: 'Campo obrigatório'),
+                  FormBuilderValidators.minLength(14,
+                      errorText: 'Contato inválido'),
+                ]),
+              ),
+              const SizedBox(height: 20),
+              Row(
+                children: [
+                  Checkbox(
+                    fillColor: WidgetStateProperty.all(Colors.white),
+                    checkColor: Colors.green[400],
+                    value: isWhatsApp,
+                    onChanged: (bool? value) {
+                      onWhatsAppChanged(value ?? false);
+                    },
+                  ),
+                  const Text('O contato é WhatsApp?',
+                      style: TextStyle(color: Colors.black)),
+                ],
+              ),
+              const SizedBox(height: 20),
+              ElevatedButton(
+                onPressed: onSave,
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 15.0),
+                  minimumSize: const Size(double.infinity, 50),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10.0),
+                  ),
+                ),
+                child: const Text('Salvar cadastro',
+                    style: TextStyle(color: Colors.white)),
+              ),
+              const SizedBox(height: 20),
+              ElevatedButton(
+                onPressed: onShowHistory,
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 15.0),
+                  minimumSize: const Size(double.infinity, 50),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10.0),
+                  ),
+                ),
+                child: const Text('Ver Histórico de cadastros',
+                    style: TextStyle(color: Colors.white)),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+"
+
+cadastro_model.dart"// cadastro_model.dart
+
+import 'package:hive/hive.dart';
+
+part 'cadastro_model.g.dart'; // Gerado pelo Hive
+
+@HiveType(typeId: 0)
+class CadastroModel extends HiveObject {
+  @HiveField(0)
+  String? nome;
+
+  @HiveField(1)
+  String? classificacaoIdade;
+
+  @HiveField(2)
+  String? bairro;
+
+  @HiveField(3)
+  String? profissao;
+
+  @HiveField(4)
+  String? contato;
+
+  @HiveField(5)
+  late bool whatsapp;
+}
+"
